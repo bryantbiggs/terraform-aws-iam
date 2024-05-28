@@ -6,10 +6,8 @@ locals {
     for url in compact(distinct(concat(var.provider_urls, [var.provider_url]))) :
     replace(url, "https://", "")
   ]
-  number_of_role_policy_arns      = coalesce(var.number_of_role_policy_arns, length(var.role_policy_arns))
-  role_name_condition             = var.role_name != null ? var.role_name : "${var.role_name_prefix}*"
-  trust_policy_session_tag_action = var.enable_session_tags ? ["sts:TagSession"] : []
-  trust_policy_actions            = concat(["sts:AssumeRoleWithWebIdentity"], local.trust_policy_session_tag_action)
+  number_of_role_policy_arns = coalesce(var.number_of_role_policy_arns, length(var.role_policy_arns))
+  role_name_condition        = var.role_name != null ? var.role_name : "${var.role_name_prefix}*"
 }
 
 data "aws_caller_identity" "current" {}
@@ -23,9 +21,12 @@ data "aws_iam_policy_document" "assume_role_with_oidc" {
     for_each = var.allow_self_assume_role ? [1] : []
 
     content {
-      sid     = "ExplicitSelfRoleAssumption"
-      effect  = "Allow"
-      actions = ["sts:AssumeRole"]
+      sid    = "ExplicitSelfRoleAssumption"
+      effect = "Allow"
+      actions = [
+        "sts:AssumeRole",
+        "sts:TagSession",
+      ]
 
       principals {
         type        = "AWS"
@@ -44,8 +45,11 @@ data "aws_iam_policy_document" "assume_role_with_oidc" {
     for_each = local.urls
 
     content {
-      effect  = "Allow"
-      actions = local.trust_policy_actions
+      effect = "Allow"
+      actions = [
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:TagSession",
+      ]
 
       principals {
         type = "Federated"
@@ -84,12 +88,12 @@ data "aws_iam_policy_document" "assume_role_with_oidc" {
       }
 
       dynamic "condition" {
-        for_each = var.enable_session_tags ? var.oidc_session_tags : {}
+        for_each = var.assume_role_conditions
 
         content {
-          test     = "StringLike"
-          variable = "aws:RequestTag/${condition.key}"
-          values   = [condition.value]
+          test     = condition.value.test
+          variable = condition.value.variable
+          values   = condition.value.values
         }
       }
     }
